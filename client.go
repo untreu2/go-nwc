@@ -17,6 +17,23 @@ type Client struct {
 	ClientPubKey string
 }
 
+type InvoiceDetails struct {
+	Type            string                 `json:"type"`
+	Invoice         string                 `json:"invoice"`
+	Description     string                 `json:"description"`
+	DescriptionHash string                 `json:"description_hash"`
+	Preimage        string                 `json:"preimage"`
+	PaymentHash     string                 `json:"payment_hash"`
+	Amount          int64                  `json:"amount"`
+	FeesPaid        int64                  `json:"fees_paid"`
+	CreatedAt       int64                  `json:"created_at"`
+	ExpiresAt       int64                  `json:"expires_at"`
+	SettledAt       int64                  `json:"settled_at"`
+	Metadata        map[string]interface{} `json:"metadata"`
+}
+
+type TransactionDetails = InvoiceDetails
+
 func NewClient(uri string) (*Client, error) {
 	relayURL, walletPubKey, secret, err := ParseNWCURI(uri)
 	if err != nil {
@@ -39,7 +56,10 @@ func (c *Client) sendRequest(method string, params map[string]interface{}) (stri
 		"method": method,
 		"params": params,
 	}
-	payloadBytes, _ := json.Marshal(payload)
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
 
 	sharedSecret, err := nip04.ComputeSharedSecret(c.WalletPubKey, c.ClientSecret)
 	if err != nil {
@@ -109,7 +129,9 @@ func (c *Client) GetBalance() (*struct {
 			Balance int64 `json:"balance"`
 		} `json:"result"`
 	}
-	json.Unmarshal([]byte(raw), &resp)
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return nil, err
+	}
 	return &resp.Result, nil
 }
 
@@ -122,17 +144,17 @@ func (c *Client) MakeInvoice(amount int, memo string) (string, error) {
 		return "", err
 	}
 	var resp struct {
-		Result struct {
-			Invoice string `json:"invoice"`
-		} `json:"result"`
+		Result InvoiceDetails `json:"result"`
 	}
-	json.Unmarshal([]byte(raw), &resp)
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return "", err
+	}
 	return resp.Result.Invoice, nil
 }
 
 func (c *Client) PayInvoice(invoice string) (*struct {
-	Preimage string  `json:"preimage"`
-	FeesPaid float64 `json:"fees_paid"`
+	Preimage string `json:"preimage"`
+	FeesPaid int64  `json:"fees_paid"`
 }, error) {
 	raw, err := c.sendRequest("pay_invoice", map[string]interface{}{
 		"invoice": invoice,
@@ -142,17 +164,19 @@ func (c *Client) PayInvoice(invoice string) (*struct {
 	}
 	var resp struct {
 		Result struct {
-			Preimage string  `json:"preimage"`
-			FeesPaid float64 `json:"fees_paid"`
+			Preimage string `json:"preimage"`
+			FeesPaid int64  `json:"fees_paid"`
 		} `json:"result"`
 	}
-	json.Unmarshal([]byte(raw), &resp)
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return nil, err
+	}
 	return &resp.Result, nil
 }
 
 func (c *Client) PayKeysend(pubkey string, amount int) (*struct {
-	Preimage string  `json:"preimage"`
-	FeesPaid float64 `json:"fees_paid"`
+	Preimage string `json:"preimage"`
+	FeesPaid int64  `json:"fees_paid"`
 }, error) {
 	raw, err := c.sendRequest("pay_keysend", map[string]interface{}{
 		"amount": amount,
@@ -163,19 +187,17 @@ func (c *Client) PayKeysend(pubkey string, amount int) (*struct {
 	}
 	var resp struct {
 		Result struct {
-			Preimage string  `json:"preimage"`
-			FeesPaid float64 `json:"fees_paid"`
+			Preimage string `json:"preimage"`
+			FeesPaid int64  `json:"fees_paid"`
 		} `json:"result"`
 	}
-	json.Unmarshal([]byte(raw), &resp)
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return nil, err
+	}
 	return &resp.Result, nil
 }
 
-func (c *Client) LookupInvoice(param string) (*struct {
-	Type        string `json:"type"`
-	Amount      int64  `json:"amount"`
-	PaymentHash string `json:"payment_hash"`
-}, error) {
+func (c *Client) LookupInvoice(param string) (*InvoiceDetails, error) {
 	raw, err := c.sendRequest("lookup_invoice", map[string]interface{}{
 		"invoice": param,
 	})
@@ -183,43 +205,39 @@ func (c *Client) LookupInvoice(param string) (*struct {
 		return nil, err
 	}
 	var resp struct {
-		Result struct {
-			Type        string `json:"type"`
-			Amount      int64  `json:"amount"`
-			PaymentHash string `json:"payment_hash"`
-		} `json:"result"`
+		Result InvoiceDetails `json:"result"`
 	}
-	json.Unmarshal([]byte(raw), &resp)
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return nil, err
+	}
 	return &resp.Result, nil
 }
 
-func (c *Client) ListTransactions() ([]struct {
-	Type        string `json:"type"`
-	Amount      int64  `json:"amount"`
-	PaymentHash string `json:"payment_hash"`
-}, error) {
+func (c *Client) ListTransactions() ([]TransactionDetails, error) {
 	raw, err := c.sendRequest("list_transactions", map[string]interface{}{})
 	if err != nil {
 		return nil, err
 	}
 	var resp struct {
 		Result struct {
-			Transactions []struct {
-				Type        string `json:"type"`
-				Amount      int64  `json:"amount"`
-				PaymentHash string `json:"payment_hash"`
-			} `json:"transactions"`
+			Transactions []TransactionDetails `json:"transactions"`
 		} `json:"result"`
 	}
-	json.Unmarshal([]byte(raw), &resp)
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return nil, err
+	}
 	return resp.Result.Transactions, nil
 }
 
 func (c *Client) GetInfo() (*struct {
-	Alias   string   `json:"alias"`
-	Pubkey  string   `json:"pubkey"`
-	Network string   `json:"network"`
-	Methods []string `json:"methods"`
+	Alias         string   `json:"alias"`
+	Pubkey        string   `json:"pubkey"`
+	Network       string   `json:"network"`
+	Methods       []string `json:"methods"`
+	Color         string   `json:"color"`
+	BlockHeight   int64    `json:"block_height"`
+	BlockHash     string   `json:"block_hash"`
+	Notifications []string `json:"notifications"`
 }, error) {
 	raw, err := c.sendRequest("get_info", map[string]interface{}{})
 	if err != nil {
@@ -227,12 +245,18 @@ func (c *Client) GetInfo() (*struct {
 	}
 	var resp struct {
 		Result struct {
-			Alias   string   `json:"alias"`
-			Pubkey  string   `json:"pubkey"`
-			Network string   `json:"network"`
-			Methods []string `json:"methods"`
+			Alias         string   `json:"alias"`
+			Pubkey        string   `json:"pubkey"`
+			Network       string   `json:"network"`
+			Methods       []string `json:"methods"`
+			Color         string   `json:"color"`
+			BlockHeight   int64    `json:"block_height"`
+			BlockHash     string   `json:"block_hash"`
+			Notifications []string `json:"notifications"`
 		} `json:"result"`
 	}
-	json.Unmarshal([]byte(raw), &resp)
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return nil, err
+	}
 	return &resp.Result, nil
 }
